@@ -44,34 +44,35 @@ def load_data(path):
     """ Load data and tokenize """
     local_path = keras.utils.get_file("data.json", path)
 
-    tokenizer = load_tokenizer()
+    tokenizer = DistilBertTokenizerFast.from_pretrained(model_name, cache_dir=cache_dir)
 
     f = open(local_path, 'r')
     Lines = f.readlines()
     f.close
     encodings = []
     labels = []
-    max_length = 512
 
     for line in Lines:
       item = json.loads(line)
-      prompt = item['article']
-      choice0 = item['question'].replace('@placeholder', item['option_0'])
-      choice1 = item['question'].replace('@placeholder', item['option_1'])
-      choice2 = item['question'].replace('@placeholder', item['option_2'])
-      choice3 = item['question'].replace('@placeholder', item['option_3'])
-      choice4 = item['question'].replace('@placeholder', item['option_4'])
-      encoding = tokenizer([prompt, prompt, prompt, prompt, prompt], [choice0, choice1, choice2, choice3, choice4], return_tensors='pt', truncation=True, padding='max_length', max_length=max_length)
+      prompt = [
+        item['article'],
+        item['article'],
+        item['article'],
+        item['article'],
+        item['article']
+      ]
+      choices = [
+        item['question'].replace('@placeholder', item['option_0']),
+        item['question'].replace('@placeholder', item['option_1']),
+        item['question'].replace('@placeholder', item['option_2']),
+        item['question'].replace('@placeholder', item['option_3']),
+        item['question'].replace('@placeholder', item['option_4'])
+      ]
+      encoding = tokenizer(prompt, choices, return_tensors='pt', truncation=True, padding='max_length', max_length=512)
       encodings.append(encoding)
       labels.append(item['label'])
 
     return encodings, labels
-
-def load_model():
-    return DistilBertForMultipleChoice.from_pretrained('distilbert-base-uncased')
-
-def load_tokenizer():
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
 
 def compute_metrics(pred):
     labels = pred.label_ids
@@ -79,8 +80,15 @@ def compute_metrics(pred):
     return {
         'accuracy': acc,
     }
+    
+def main():
+    encodings, labels = load_data(sys.argv[2])
 
-def train_model():
+    train_data, eval_data, train_labels, eval_labels = train_test_split(encodings, labels, test_size=.2)
+
+    train_dataset = RecamDataset(train_data, train_labels)
+    val_dataset = RecamDataset(eval_data, eval_labels)
+
     training_args = TrainingArguments(
         output_dir='./results',
         num_train_epochs=3,
@@ -89,7 +97,7 @@ def train_model():
         warmup_steps=500,
         weight_decay=0.01,
         logging_dir='./logs',
-        logging_steps=10,
+        logging_steps=10
     )
 
     trainer = Trainer(
@@ -101,29 +109,16 @@ def train_model():
     )
 
     trainer.train()
-
-    # trainer.save_model('where?')
-
-    return trainer
-    
-def main():
-    # Check for GPU.
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
-    encodings, labels = load_data(sys.argv[1])
-
-    train_data, eval_data, train_labels, eval_labels = train_test_split(encodings, labels, test_size=.2)
-
-    #train_dataset = RecamDataset(train_data, train_labels)
-    #val_dataset = RecamDataset(eval_data, eval_labels)
-
-    #model = load_model()
-
-    #trainer = train_model()
-
-    #trainer.evaluate()
+    trainer.save_model(model_dir)
+    trainer.evaluate()
     
 if __name__ == "__main__":
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    model_name = sys.argv[1]
+    cache_dir = './recam/cache/' + model_name
+    model_dir = './recam/models/' + model_name
+    model = DistilBertForMultipleChoice.from_pretrained(model_name, cache_dir=cache_dir)
+    model.to(device)
     main()
 
 
